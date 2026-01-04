@@ -69,6 +69,26 @@ class AgentDecision(BaseModel):
 
 
 # =============================================================================
+# Observation Schema (M5)
+# =============================================================================
+
+
+class Observation(BaseModel):
+    """Observation from a tool execution.
+
+    Fed back to the agent so it can reason about results
+    and decide next steps.
+    """
+
+    tool_name: str = Field(..., description="Name of the tool that was executed")
+    success: bool = Field(..., description="Whether the tool execution succeeded")
+    result: dict[str, Any] | None = Field(
+        default=None, description="Tool result data (if successful)"
+    )
+    error: str | None = Field(default=None, description="Error message (if failed)")
+
+
+# =============================================================================
 # Agent Response Schema
 # =============================================================================
 

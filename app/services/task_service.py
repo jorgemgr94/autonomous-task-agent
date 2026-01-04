@@ -8,35 +8,69 @@ from app.schemas.task import (
     AgentDecision,
     AgentResponse,
     DecisionType,
+    Observation,
     ResponseStatus,
     TaskInput,
 )
 
 logger = logging.getLogger(__name__)
 
+# Configuration
+MAX_ITERATIONS = 5  # Prevent infinite loops
+
 # Initialize the reasoning agent
 _agent = ReasoningAgent()
 
 
 def process_task(task_input: TaskInput) -> AgentResponse:
-    """Process a task and return the agent's response.
+    """Process a task using the observation loop.
 
-    This orchestrates the agent reasoning, tool execution,
-    and converts the final decision into a response.
+    The agent can:
+    1. Decide to use a tool → execute → observe result → decide again
+    2. Decide to respond/clarify/escalate → return final response
+
+    Loop continues until agent makes a final decision or max iterations reached.
     """
+    observations: list[Observation] = []
+    iteration = 0
+
     try:
-        # Get agent's decision
-        decision = _agent.reason(task_input)
+        while iteration < MAX_ITERATIONS:
+            iteration += 1
+            logger.info("Iteration %d/%d", iteration, MAX_ITERATIONS)
 
-        # Handle tool execution if needed
-        if decision.decision_type == DecisionType.USE_TOOL:
-            return _handle_tool_decision(decision)
+            # Get agent's decision (with any previous observations)
+            decision = _agent.reason(task_input, observations if observations else None)
 
-        # Convert other decisions to response
-        return _decision_to_response(decision)
+            # Terminal decisions - return response
+            if decision.decision_type in (
+                DecisionType.RESPOND,
+                DecisionType.CLARIFY,
+                DecisionType.ESCALATE,
+            ):
+                return _decision_to_response(decision, observations)
+
+            # USE_TOOL - execute and observe
+            if decision.decision_type == DecisionType.USE_TOOL:
+                observation = _execute_and_observe(decision)
+                observations.append(observation)
+
+                # If tool failed critically, we might want to let agent try again
+                # or we can continue the loop and let agent decide
+                continue
+
+        # Max iterations reached
+        logger.warning("Max iterations (%d) reached", MAX_ITERATIONS)
+        return AgentResponse(
+            status=ResponseStatus.FAILED,
+            message="I was unable to complete the task within the allowed steps.",
+            data={
+                "iterations": iteration,
+                "observations": [obs.model_dump() for obs in observations],
+            },
+        )
 
     except ValueError as e:
-        # Parsing/validation errors from agent
         logger.error("Agent reasoning failed: %s", e)
         return AgentResponse(
             status=ResponseStatus.FAILED,
@@ -44,7 +78,6 @@ def process_task(task_input: TaskInput) -> AgentResponse:
             data={"error": str(e)},
         )
     except Exception as e:
-        # Unexpected errors
         logger.exception("Unexpected error processing task")
         return AgentResponse(
             status=ResponseStatus.FAILED,
@@ -53,53 +86,38 @@ def process_task(task_input: TaskInput) -> AgentResponse:
         )
 
 
-def _handle_tool_decision(decision: AgentDecision) -> AgentResponse:
-    """Handle a USE_TOOL decision by executing the tool.
+def _execute_and_observe(decision: AgentDecision) -> Observation:
+    """Execute a tool and return an observation.
 
     Args:
-        decision: The agent's decision with tool_call
+        decision: The agent's USE_TOOL decision
 
     Returns:
-        AgentResponse with tool execution results
+        Observation with tool execution results
     """
     if decision.tool_call is None:
-        logger.error("USE_TOOL decision without tool_call")
-        return AgentResponse(
-            status=ResponseStatus.FAILED,
-            message="Agent decided to use a tool but didn't specify which one.",
-            data={"reasoning": decision.reasoning},
+        return Observation(
+            tool_name="unknown",
+            success=False,
+            error="Agent decided to use a tool but didn't specify which one.",
         )
 
     # Dispatch the tool
     result = dispatch_tool(decision.tool_call)
 
-    if result.success:
-        return AgentResponse(
-            status=ResponseStatus.SUCCESS,
-            message=decision.message or "Tool executed successfully.",
-            data={
-                "tool": decision.tool_call.tool_name,
-                "result": result.data,
-                "reasoning": decision.reasoning,
-            },
-        )
-    else:
-        return AgentResponse(
-            status=ResponseStatus.FAILED,
-            message=result.error or "Tool execution failed.",
-            data={
-                "tool": decision.tool_call.tool_name,
-                "error": result.error,
-                "reasoning": decision.reasoning,
-            },
-        )
+    return Observation(
+        tool_name=decision.tool_call.tool_name,
+        success=result.success,
+        result=result.data,
+        error=result.error,
+    )
 
 
-def _decision_to_response(decision: AgentDecision) -> AgentResponse:
-    """Convert an AgentDecision to an AgentResponse.
-
-    Maps decision types to response statuses.
-    """
+def _decision_to_response(
+    decision: AgentDecision,
+    observations: list[Observation],
+) -> AgentResponse:
+    """Convert a terminal decision to an AgentResponse."""
     status_map = {
         DecisionType.RESPOND: ResponseStatus.SUCCESS,
         DecisionType.CLARIFY: ResponseStatus.NEEDS_INPUT,
@@ -109,8 +127,21 @@ def _decision_to_response(decision: AgentDecision) -> AgentResponse:
     status = status_map.get(decision.decision_type, ResponseStatus.FAILED)
     message = decision.message or ""
 
+    # Include observations in response data
+    data: dict = {"reasoning": decision.reasoning}
+    if observations:
+        data["tool_calls"] = [
+            {
+                "tool": obs.tool_name,
+                "success": obs.success,
+                "result": obs.result,
+                "error": obs.error,
+            }
+            for obs in observations
+        ]
+
     return AgentResponse(
         status=status,
         message=message,
-        data={"reasoning": decision.reasoning},
+        data=data,
     )
