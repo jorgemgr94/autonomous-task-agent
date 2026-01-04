@@ -7,9 +7,10 @@ from typing import cast
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
-from app.agents.prompts import REASONING_SYSTEM_PROMPT
+from app.agents.prompts import build_system_prompt
 from app.config import settings
 from app.schemas.task import AgentDecision, DecisionType, TaskInput
+from app.tools import registry
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,11 @@ class ReasoningAgent:
             api_key=settings.openai_api_key,
             temperature=temperature,
         )
-        self.system_prompt = REASONING_SYSTEM_PROMPT
+
+    @property
+    def system_prompt(self) -> str:
+        """Build system prompt with current available tools."""
+        return build_system_prompt(registry.list_tools())
 
     def reason(self, task_input: TaskInput) -> AgentDecision:
         """Analyze a task and produce a structured decision.
