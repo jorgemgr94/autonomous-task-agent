@@ -1,10 +1,7 @@
-from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from app.schemas.task import TaskRequest, TaskResponse
 from app.services.task_service import process_task
-
-load_dotenv()
 
 app = FastAPI(
     title="Autonomous Task Agent",
