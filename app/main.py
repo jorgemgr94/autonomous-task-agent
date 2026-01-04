@@ -1,4 +1,10 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+from app.schemas.task import TaskRequest, TaskResponse
+from app.services.task_service import process_task
+
+load_dotenv()
 
 app = FastAPI(
     title="Autonomous Task Agent",
@@ -10,3 +16,8 @@ app = FastAPI(
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.post("/tasks", response_model=TaskResponse)
+def run_task(payload: TaskRequest):
+    return process_task(payload.task)
