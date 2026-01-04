@@ -20,4 +20,6 @@ def health_check():
 
 @app.post("/tasks", response_model=TaskResponse)
 def run_task(payload: TaskRequest):
-    return process_task(payload.task)
+    task_input = payload.to_task_input()
+    agent_response = process_task(task_input)
+    return TaskResponse.from_agent_response(agent_response)
