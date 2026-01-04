@@ -14,6 +14,9 @@ from app.tools import registry
 
 logger = logging.getLogger(__name__)
 
+# Retry configuration
+MAX_PARSE_RETRIES = 2
+
 
 class ReasoningAgent:
     """Agent that reasons about tasks and produces structured decisions.
@@ -41,6 +44,8 @@ class ReasoningAgent:
     ) -> AgentDecision:
         """Analyze a task and produce a structured decision.
 
+        Includes retry logic for malformed LLM outputs.
+
         Args:
             task_input: The task to analyze
             observations: Previous tool execution results (for observation loop)
@@ -49,28 +54,67 @@ class ReasoningAgent:
             AgentDecision with the agent's decision
 
         Raises:
-            ValueError: If LLM output cannot be parsed
+            ValueError: If LLM output cannot be parsed after retries
         """
         messages = self._build_messages(task_input, observations)
-
-        logger.info("Starting reasoning for task: %s", task_input.task[:100])
-        if observations:
-            logger.info("With %d observation(s)", len(observations))
-
-        response = self.llm.invoke(messages)
-        raw_output = cast(str, response.content)
-
-        logger.debug("Raw LLM output: %s", raw_output)
-
-        decision = self._parse_decision(raw_output)
+        last_error: Exception | None = None
 
         logger.info(
-            "Decision made: type=%s, reasoning=%s",
-            decision.decision_type.value,
-            decision.reasoning[:100],
+            "agent.reason.start",
+            extra={
+                "task": task_input.task[:100],
+                "observations_count": len(observations) if observations else 0,
+            },
         )
 
-        return decision
+        for attempt in range(1, MAX_PARSE_RETRIES + 1):
+            try:
+                response = self.llm.invoke(messages)
+                raw_output = cast(str, response.content)
+
+                logger.debug(
+                    "agent.llm.response",
+                    extra={"attempt": attempt, "output_length": len(raw_output)},
+                )
+
+                decision = self._parse_decision(raw_output)
+
+                logger.info(
+                    "agent.reason.success",
+                    extra={
+                        "decision_type": decision.decision_type.value,
+                        "has_tool_call": decision.tool_call is not None,
+                        "attempt": attempt,
+                    },
+                )
+
+                return decision
+
+            except ValueError as e:
+                last_error = e
+                logger.warning(
+                    "agent.parse.retry",
+                    extra={"attempt": attempt, "error": str(e)},
+                )
+
+                if attempt < MAX_PARSE_RETRIES:
+                    # Add a hint to the conversation for retry
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your response was not valid JSON. Please respond with ONLY valid JSON, no markdown.",
+                        }
+                    )
+                    continue
+
+        # All retries exhausted
+        logger.error(
+            "agent.reason.failed",
+            extra={"attempts": MAX_PARSE_RETRIES, "error": str(last_error)},
+        )
+        raise ValueError(
+            f"Failed to get valid response after {MAX_PARSE_RETRIES} attempts: {last_error}"
+        )
 
     def _build_messages(
         self,
@@ -85,7 +129,6 @@ class ReasoningAgent:
 
         if observations:
             for obs in observations:
-                # Add each observation as assistant action + result
                 messages.append(
                     {
                         "role": "assistant",
@@ -137,8 +180,14 @@ class ReasoningAgent:
             )
 
     def _parse_decision(self, raw_output: str) -> AgentDecision:
-        """Parse LLM output into an AgentDecision."""
+        """Parse LLM output into an AgentDecision.
+
+        Raises:
+            ValueError: If parsing or validation fails
+        """
         cleaned = raw_output.strip()
+
+        # Handle markdown code fences
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
             cleaned = "\n".join(lines[1:-1])
@@ -146,18 +195,14 @@ class ReasoningAgent:
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse LLM output as JSON: %s", e)
-            raise ValueError(f"LLM output is not valid JSON: {e}") from e
+            raise ValueError(f"Invalid JSON: {e}") from e
 
         try:
-            decision = AgentDecision(
+            return AgentDecision(
                 decision_type=DecisionType(data.get("decision_type")),
                 reasoning=data.get("reasoning", ""),
                 message=data.get("message"),
                 tool_call=data.get("tool_call"),
             )
         except (ValidationError, ValueError) as e:
-            logger.error("Failed to validate decision schema: %s", e)
-            raise ValueError(f"LLM output does not match expected schema: {e}") from e
-
-        return decision
+            raise ValueError(f"Schema validation failed: {e}") from e

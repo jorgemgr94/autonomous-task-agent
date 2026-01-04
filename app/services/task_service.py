@@ -1,6 +1,7 @@
 """Task processing service - main entry point for agent execution."""
 
 import logging
+import time
 
 from app.agents.dispatcher import dispatch_tool
 from app.agents.reasoning import ReasoningAgent
@@ -33,11 +34,23 @@ def process_task(task_input: TaskInput) -> AgentResponse:
     """
     observations: list[Observation] = []
     iteration = 0
+    start_time = time.time()
+
+    logger.info(
+        "task.start",
+        extra={
+            "task": task_input.task[:100],
+            "has_context": task_input.context is not None,
+        },
+    )
 
     try:
         while iteration < MAX_ITERATIONS:
             iteration += 1
-            logger.info("Iteration %d/%d", iteration, MAX_ITERATIONS)
+            logger.info(
+                "task.iteration",
+                extra={"iteration": iteration, "max": MAX_ITERATIONS},
+            )
 
             # Get agent's decision (with any previous observations)
             decision = _agent.reason(task_input, observations if observations else None)
@@ -48,6 +61,16 @@ def process_task(task_input: TaskInput) -> AgentResponse:
                 DecisionType.CLARIFY,
                 DecisionType.ESCALATE,
             ):
+                duration = time.time() - start_time
+                logger.info(
+                    "task.complete",
+                    extra={
+                        "decision": decision.decision_type.value,
+                        "iterations": iteration,
+                        "tools_called": len(observations),
+                        "duration_ms": int(duration * 1000),
+                    },
+                )
                 return _decision_to_response(decision, observations)
 
             # USE_TOOL - execute and observe
@@ -55,12 +78,27 @@ def process_task(task_input: TaskInput) -> AgentResponse:
                 observation = _execute_and_observe(decision)
                 observations.append(observation)
 
-                # If tool failed critically, we might want to let agent try again
-                # or we can continue the loop and let agent decide
+                logger.info(
+                    "task.tool_executed",
+                    extra={
+                        "tool": observation.tool_name,
+                        "success": observation.success,
+                        "iteration": iteration,
+                    },
+                )
+
                 continue
 
         # Max iterations reached
-        logger.warning("Max iterations (%d) reached", MAX_ITERATIONS)
+        duration = time.time() - start_time
+        logger.warning(
+            "task.max_iterations",
+            extra={
+                "iterations": MAX_ITERATIONS,
+                "tools_called": len(observations),
+                "duration_ms": int(duration * 1000),
+            },
+        )
         return AgentResponse(
             status=ResponseStatus.FAILED,
             message="I was unable to complete the task within the allowed steps.",
@@ -71,14 +109,14 @@ def process_task(task_input: TaskInput) -> AgentResponse:
         )
 
     except ValueError as e:
-        logger.error("Agent reasoning failed: %s", e)
+        logger.error("task.error.parsing", extra={"error": str(e)})
         return AgentResponse(
             status=ResponseStatus.FAILED,
             message="I encountered an error while processing your request.",
             data={"error": str(e)},
         )
     except Exception as e:
-        logger.exception("Unexpected error processing task")
+        logger.exception("task.error.unexpected")
         return AgentResponse(
             status=ResponseStatus.FAILED,
             message="An unexpected error occurred.",
@@ -87,22 +125,17 @@ def process_task(task_input: TaskInput) -> AgentResponse:
 
 
 def _execute_and_observe(decision: AgentDecision) -> Observation:
-    """Execute a tool and return an observation.
-
-    Args:
-        decision: The agent's USE_TOOL decision
-
-    Returns:
-        Observation with tool execution results
-    """
+    """Execute a tool and return an observation."""
     if decision.tool_call is None:
+        logger.error(
+            "task.tool.missing", extra={"decision": decision.decision_type.value}
+        )
         return Observation(
             tool_name="unknown",
             success=False,
             error="Agent decided to use a tool but didn't specify which one.",
         )
 
-    # Dispatch the tool
     result = dispatch_tool(decision.tool_call)
 
     return Observation(
@@ -127,7 +160,6 @@ def _decision_to_response(
     status = status_map.get(decision.decision_type, ResponseStatus.FAILED)
     message = decision.message or ""
 
-    # Include observations in response data
     data: dict = {"reasoning": decision.reasoning}
     if observations:
         data["tool_calls"] = [

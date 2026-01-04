@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 
+from app.config import settings
 from app.schemas.task import TaskRequest, TaskResponse
-from app.services.task_service import process_task
+from app.services.task_service import MAX_ITERATIONS, process_task
+from app.tools import registry
 
 app = FastAPI(
     title="Autonomous Task Agent",
@@ -12,11 +14,29 @@ app = FastAPI(
 
 @app.get("/health")
 def health_check():
+    """Basic health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/status")
+def status():
+    """Detailed status endpoint with agent configuration."""
+    return {
+        "status": "ok",
+        "agent": {
+            "model": settings.openai_model,
+            "max_iterations": MAX_ITERATIONS,
+        },
+        "tools": {
+            "available": registry.tool_names,
+            "count": len(registry.tool_names),
+        },
+    }
 
 
 @app.post("/tasks", response_model=TaskResponse)
 def run_task(payload: TaskRequest):
+    """Process a task through the autonomous agent."""
     task_input = payload.to_task_input()
     agent_response = process_task(task_input)
     return TaskResponse.from_agent_response(agent_response)
