@@ -13,3 +13,9 @@ dependencies = [
   "langchain",
   "langchain-openai"
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "httpx",
+]
