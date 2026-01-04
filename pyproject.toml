@@ -1,0 +1,14 @@
+[project]
+name = "autonomous-task-agent"
+version = "0.1.0"
+description = "Autonomous agent with reasoning, tool execution and decision-making"
+requires-python = ">=3.11"
+
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "pydantic",
+  "python-dotenv",
+  "langchain",
+  "langchain-openai"
+]

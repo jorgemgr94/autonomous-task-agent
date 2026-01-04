@@ -1,0 +1,36 @@
+# Autonomous Task Agent
+
+This is a Python FastAPI project building an autonomous agent with reasoning, tool execution, and decision-making capabilities.
+
+## Tech Stack
+- Python 3.11+, FastAPI, Pydantic
+- LangChain + LangChain-OpenAI
+- Package management: uv
+
+## Architecture
+
+### Agent Flow
+1. Receive task
+2. Reason about required actions
+3. Decide which tool to call (if any)
+4. Execute tool
+5. Observe result
+6. Produce final response
+
+### Design Principles
+- No infinite loops
+- Tools are explicit and validated
+- Agent decisions are structured (JSON)
+- Errors are handled gracefully
+
+## Agent Rules
+- Never hallucinate tool results
+- If insufficient information is available, request clarification
+- Tool calls must use structured schemas
+- Reasoning should be logged but not exposed to end users
+
+## Git
+- Use conventional commits: `type(scope): description`
+- Types: feat, fix, docs, style, refactor, test, chore
+- Keep subject line under 50 characters
+- Use imperative mood ("add" not "added")
