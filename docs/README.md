@@ -50,5 +50,5 @@ flowchart TB
 
 ## Documentation
 
-- **[ROADMAP.md](../ROADMAP.md)**: The vision for 2026 (MCP, Production Safety).
-- **[API.md](../README.md)**: Technical API documentation (in root).
+- **[ROADMAP.md](./ROADMAP.md)**: The project roadmap.
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)**: Technical architecture and API documentation.
