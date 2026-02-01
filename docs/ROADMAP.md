@@ -6,7 +6,7 @@ This project is the **Execution Engine**. While the RAG system *thinks* and *und
 
 ---
 
-## 2026 Vision: The Agentic Worker
+## The Agentic Worker
 
 The "Task Agent" is no longer just a script; it is a **Digital Employee**.
 
