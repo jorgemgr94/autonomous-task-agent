@@ -20,15 +20,15 @@ The "Task Agent" is no longer just a script; it is a **Digital Employee**.
 
 | Milestone | Focus | Status |
 |-----------|-------|:------:|
-| ** Phase 1: Core Engine ** | | |
+| Phase 1: Core Engine | | |
 | M1: API & Server Foundation | Architecture | ✅ |
 | M2: Tool Registry System | Tools | ✅ |
 | M3: Basic Observation Loop | Reasoning | ✅ |
-| ** Phase 2: Advanced Capabilities ** | | |
+| Phase 2: Advanced Capabilities | | |
 | M4: Reliability Patterns | Resilience | 🆕 |
 | M5: Human-in-the-Loop UI & Streamlit | Safety/UX | 🆕 |
 | M6: Dynamic Planning (ReAct/Plan-and-Solve) | Autonomy | 🆕 |
-| ** Phase 3: Production Readiness ** | | |
+| Phase 3: Production Readiness | | |
 | M7: Docker & Containerization | Deployment | ⏳ |
 | M8: Authentication & Security | Security | 🆕 |
 | M9: Structured Observability | Monitoring | 🆕 |
